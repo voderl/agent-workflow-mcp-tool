@@ -17,8 +17,9 @@ import type {
   TodoWriteInput,
   WebFetchInput,
   WebSearchInput,
-} from "@anthropic-ai/claude-agent-sdk/sdk-tools";
-import z, { ZodType } from "zod";
+} from "./claude-code-tools.js";
+import z from "zod";
+import type { ZodType } from "zod";
 
 import { formatError, formatToString } from "./utils.js";
 

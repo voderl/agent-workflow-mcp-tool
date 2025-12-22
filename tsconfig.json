@@ -40,11 +40,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "paths": {
-      "@anthropic-ai/claude-agent-sdk/sdk-tools": [
-        "./node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts"
-      ]
-    }
+    "resolveJsonModule": true
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "agent-workflow-mcp-tool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Code controlled agent workflow. Agent lies, code not.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,6 +10,7 @@
     "_publish": "npx tsc && npm publish --registry https://registry.npmjs.org",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "homepage": "https://github.com/voderl/agent-workflow-mcp-tool",
   "keywords": [
     "agent",
     "workflow",

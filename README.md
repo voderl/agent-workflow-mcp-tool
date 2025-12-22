@@ -15,7 +15,7 @@ npm install agent-workflow-mcp-tool
 import { registerWorkflowTool, Prompt, ClaudeCodeTools, z } from 'agent-workflow-mcp-tool';
 ```
 
-simple demo to input two number and plus:
+simple demo to input two number and plus with claude code:
 ```js
 const server = new McpServer({
   name: "agent-workflow",
@@ -45,7 +45,7 @@ registerWorkflowTool(
 );
 ```
 
-another complex demo to use featureflag control a commit: 
+another complex demo to use featureflag control a commit with claude code: 
 ```js
 registerWorkflowTool(
   server,
