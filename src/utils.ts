@@ -1,16 +1,24 @@
+import type { ZodType } from "zod";
+import z from "zod";
+
 export function wrapText(text: string) {
   return [
     {
       type: "text" as const,
-      text: text,
+      text: trimText(text),
     },
   ];
 }
 
-// avoid loop
-export function wrapProgress(text: string, progress: string) {
-  return `Workflow progress: ${progress}.
-${text}`;
+export function trimText(text: string) {
+  if (!text) return "";
+  return text.trim().replace(/\n+/g, "\n");
+}
+
+export function formatToJsonSchema(schema: ZodType) {
+  const jsonSchema = z.toJSONSchema(schema);
+  if ("$schema" in jsonSchema) delete jsonSchema["$schema"];
+  return jsonSchema;
 }
 
 export function formatError(error: any) {
@@ -25,7 +33,7 @@ export function formatError(error: any) {
   // 如果是普通对象，尝试序列化
   if (typeof error === "object" && !(error instanceof Error)) {
     try {
-      return JSON.stringify(error, null, 2);
+      return JSON.stringify(error);
     } catch {
       return String(error);
     }
@@ -44,15 +52,4 @@ export function formatToString(data: any) {
   if (typeof data === "number") return `${data}`;
 
   return JSON.stringify(data);
-}
-
-export function* createMockProgressGenerator(): Generator<string> {
-  let n = 0;
-
-  while (true) {
-    n++;
-
-    const progress = 100 * (n / (n + 4));
-    yield `${parseFloat(progress.toFixed(2))}%`;
-  }
 }

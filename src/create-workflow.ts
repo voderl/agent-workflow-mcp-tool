@@ -21,9 +21,7 @@ import type {
 import z from "zod";
 import type { ZodType } from "zod";
 
-import { formatError, formatToString } from "./utils.js";
-
-export const completeSymbol = Symbol("Completed");
+import { formatError, formatToJsonSchema, formatToString } from "./utils.js";
 
 export type WorkflowGenerator = AsyncGenerator<
   WorkflowState,
@@ -38,28 +36,24 @@ export function createWorkflow(
     try {
       const result = yield* workflow();
       return {
-        prompt: `Status: Done.
+        prompt: `<workflow_status>done</workflow_status>
 You have successfully completed the workflow.${
           result !== null && result !== undefined
             ? `
-Return value:
-\`\`\`
+<workflow_result>
 ${formatToString(result)}
-\`\`\`
-`
+</workflow_result>`
             : ``
-        }
-`,
+        }`,
       };
     } catch (e: any) {
       return {
-        prompt: `Status: Error.
+        prompt: `<workflow_status>error</workflow_status>
 An error occurred with the MCP server:
-\`\`\`
+<error>
 ${formatError(e)}
-\`\`\`
-The workflow cannot be completed, you must inform the user that current mcp tool execution has failed.
-`,
+</error>
+The workflow cannot be completed, you MUST inform the user that current mcp tool execution has failed.`,
       };
     }
   };
@@ -82,24 +76,28 @@ export function* Prompt(
   schema?: ZodType
 ): Generator<WorkflowState, any, any> {
   const result = yield {
-    prompt: `Status: Processing.
-Workflow is not completed, you should complete the following task to continue:
-\`\`\`md
+    prompt: `<workflow_status>processing</workflow_status>
+<task>
 ${prompt}
-\`\`\`
+</task>
 ${
   schema
-    ? `The task result will be used as $variable, $variable must follow the JSON schema format below:
-\`\`\`json
-${JSON.stringify(z.toJSONSchema(schema))}
-\`\`\`
-
-If task failed or cannot get $variable, you should recall current mcp tool with custom error message as "error".
-If task completed, you should recall current mcp tool with $varible as "input".`
-    : `If task failed, you should recall current mcp tool with custom error message as "error".
-If task completed, you should recall current mcp tool with no props.`
-}
-`,
+    ? `<task_result_json_schema>
+${JSON.stringify(formatToJsonSchema(schema))}
+</task_result_json_schema>
+<critical_reminders>
+The workflow is processing, you MUST complete current task exactly as requested to continue workflow, NEVER skip task.
+ONLY if task failed or cannot get task result, you can recall current mcp tool with custom error message as "error", NEVER pass "error" to complete the workflow.
+If task completed, you MUST recall current mcp tool with task result as "input".
+NEVER end your responses with workflow status processing.
+</critical_reminders>`
+    : `<critical_reminders>
+The workflow is processing, you MUST complete current task exactly as requested to continue workflow, NEVER skip task.
+ONLY if task failed, you can recall current mcp tool with custom error message as "error", NEVER pass "error" to complete the workflow.
+If task completed, you MUST recall current mcp tool with no props.
+NEVER end your responses with workflow status processing.
+</critical_reminders>`
+}`,
     schema: schema!,
   };
   return result;

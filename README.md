@@ -4,7 +4,7 @@ Code controlled agent workflow. Agent lies, code not.
 * typescript support
 * async await support
 * throw catch support
-* works well with claude & deepseek-v3.2
+* works well with claude & deepseek-v3.2 & kimi-k2
 
 ## usage
 ```bash
@@ -15,7 +15,7 @@ npm install agent-workflow-mcp-tool
 import { registerWorkflowTool, Prompt, ClaudeCodeTools, z } from 'agent-workflow-mcp-tool';
 ```
 
-simple demo to input two number and plus with claude code:
+simple demo to sum number with claude code:
 ```js
 const server = new McpServer({
   name: "agent-workflow",
@@ -24,25 +24,27 @@ const server = new McpServer({
 
 registerWorkflowTool(
   server,
-  "plus-number",
+  "sum-number",
   {
-    title: "plus number",
-    description: `ask user input number, and plus.`,
+    title: "sum number",
+    description: `ask user input number, and sum from 1 to input number.`,
   },
   async function* Workflow() {
-    const variableA = yield* ClaudeCodeTools.AskUserQuestion(
-      `please input a number A`,
+    const count = yield* ClaudeCodeTools.AskUserQuestion(
+      `please input a number`,
       z.number()
     );
 
-    const variableB = yield* ClaudeCodeTools.AskUserQuestion(
-      `please input a number B`,
-      z.number()
-    );
-
-    return variableA + variableB;
+    let sum = 0;
+    for (let i = 1; i <= count; i++) {
+      sum = yield* Prompt(`calculate ${sum} + ${i}`, z.number());
+    }
+    return sum;
   }
 );
+```
+```
+Ask: use agent-workflow sum-number mcp tool
 ```
 
 another complex demo to use featureflag control a commit with claude code: 

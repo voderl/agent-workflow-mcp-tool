@@ -7,12 +7,7 @@ import {
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import z from "zod";
 import type { ZodType } from "zod";
-import {
-  createMockProgressGenerator,
-  wrapProgress,
-  wrapText,
-  formatError,
-} from "./utils.js";
+import { wrapText, formatError } from "./utils.js";
 
 export { ClaudeCodeTools, Prompt } from "./create-workflow.js";
 
@@ -32,7 +27,6 @@ export function registerWorkflowTool(
   const pools: {
     [key: string]: {
       generator: WorkflowGenerator;
-      progresser: Generator<string>;
       schema?: ZodType;
     };
   } = {};
@@ -44,14 +38,8 @@ export function registerWorkflowTool(
     {
       ...options,
       inputSchema: {
-        input: z
-          .any()
-          .optional()
-          .describe(`If you don't know what to send, don't send anything.`),
-        error: z
-          .string()
-          .optional()
-          .describe(`If you don't know what to send, don't send anything.`),
+        input: z.any().optional().describe(`First call with no props.`),
+        error: z.string().optional().describe(`First call with no props.`),
       },
     },
     async (args: any, extra) => {
@@ -60,31 +48,30 @@ export function registerWorkflowTool(
       if (!(currentSessionId in pools)) {
         // create workflow
         const generator = Workflow();
-        const progresser = createMockProgressGenerator();
 
         pools[currentSessionId] = {
           generator,
-          progresser,
         };
+
+        // 首次调用传 error 忽略
+        if ("error" in args) delete args["error"];
       }
 
-      const { generator, progresser, schema } =
+      const { generator, schema } =
         pools[currentSessionId as keyof typeof pools]!;
 
-      if ("error" in args) {
+      if ("error" in args && args.error) {
         const error = new Error(args.error);
         console.error(error);
         const { value, done } = await generator.throw(error);
         if (!done) {
-          const { value: progress } = progresser.next();
           pools[currentSessionId] = {
             generator: generator,
             schema: value.schema!,
-            progresser,
           };
 
           return {
-            content: wrapText(wrapProgress(value.prompt, progress)),
+            content: wrapText(value.prompt),
           };
         } else {
           delete pools[currentSessionId];
@@ -99,14 +86,12 @@ export function registerWorkflowTool(
         const { value, done } = await generator.next(props);
 
         if (!done) {
-          const { value: progress } = progresser.next();
           pools[currentSessionId] = {
             generator,
             schema: value.schema!,
-            progresser,
           };
           return {
-            content: wrapText(wrapProgress(value.prompt, progress)),
+            content: wrapText(value.prompt),
           };
         } else {
           delete pools[currentSessionId];

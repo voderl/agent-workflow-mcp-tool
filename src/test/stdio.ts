@@ -20,16 +20,37 @@ async function main() {
     },
     async function* Workflow() {
       const variableA = yield* ClaudeCodeTools.AskUserQuestion(
-        `please input a number A`,
+        `please input a number`,
         z.number()
       );
 
       const variableB = yield* ClaudeCodeTools.AskUserQuestion(
-        `please input a number B`,
+        `please input a number`,
         z.number()
       );
 
       return variableA + variableB;
+    }
+  );
+
+  registerWorkflowTool(
+    server,
+    "sum-number",
+    {
+      title: "sum number",
+      description: `ask user input number, and sum from 1 to input number.`,
+    },
+    async function* Workflow() {
+      const count = yield* ClaudeCodeTools.AskUserQuestion(
+        `please input a number`,
+        z.number()
+      );
+
+      let sum = 0;
+      for (let i = 1; i <= count; i++) {
+        sum = yield* Prompt(`calculate ${sum} + ${i}`, z.number());
+      }
+      return sum;
     }
   );
 
