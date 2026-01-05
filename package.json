@@ -1,6 +1,6 @@
 {
   "name": "agent-workflow-mcp-tool",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Code controlled agent workflow. Agent lies, code not.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

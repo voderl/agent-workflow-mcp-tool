@@ -44,7 +44,7 @@ registerWorkflowTool(
 );
 ```
 ```
-Ask: use agent-workflow sum-number mcp tool
+Ask: use agent-workflow mcp sum-number tool
 ```
 
 another complex demo to use featureflag control a commit with claude code: 

@@ -82,21 +82,23 @@ ${prompt}
 </task>
 ${
   schema
-    ? `<task_result_json_schema>
+    ? `<result_schema>
 ${JSON.stringify(formatToJsonSchema(schema))}
-</task_result_json_schema>
-<critical_reminders>
-The workflow is processing, you MUST complete current task exactly as requested to continue workflow, NEVER skip task.
-ONLY if task failed or cannot get task result, you can recall current mcp tool with custom error message as "error", NEVER pass "error" to complete the workflow.
-If task completed, you MUST recall current mcp tool with task result as "input".
-NEVER end your responses with workflow status processing.
-</critical_reminders>`
-    : `<critical_reminders>
-The workflow is processing, you MUST complete current task exactly as requested to continue workflow, NEVER skip task.
-ONLY if task failed, you can recall current mcp tool with custom error message as "error", NEVER pass "error" to complete the workflow.
-If task completed, you MUST recall current mcp tool with no props.
-NEVER end your responses with workflow status processing.
-</critical_reminders>`
+</result_schema>
+<constraints>
+1. MUST complete current task exactly as requested to continue workflow task by task. NEVER skip task.
+2. BRANCHING:
+  - ONLY if task failed OR cannot get task result: Call current MCP tool with message as "error", NEVER pass "error" to complete the workflow.
+  - If task completed: Call current MCP tool with result as "input".
+3. NEVER end responses while workflow status is "processing", MUST call current mcp tool to continue.
+</constraints>`
+    : `<constraints>
+1. MUST complete current task exactly as requested to continue workflow task by task. NEVER skip task.
+2. BRANCHING:
+  - ONLY if task failed: Call current MCP tool with message as "error", NEVER pass "error" to complete the workflow.
+  - If task completed: Call current MCP tool with no props.
+3. NEVER end responses while workflow status is "processing", MUST call current mcp tool to continue.
+</constraints>`
 }`,
     schema: schema!,
   };
@@ -116,8 +118,10 @@ const createToolFunction = <T>(toolName: string) => {
   function ToolFunction(props: ToolProps<T>, schema?: ZodType) {
     return Prompt(
       typeof props === "string"
-        ? `use *${toolName}* tool to achieve \`${props}\``
-        : `use *${toolName}* tool with props \`${JSON.stringify(props)}\``,
+        ? `MUST call **${toolName}** tool to achieve \`${props}\``
+        : `MUST call **${toolName}** tool with props \`${JSON.stringify(
+            props
+          )}\``,
       schema!
     );
   }
