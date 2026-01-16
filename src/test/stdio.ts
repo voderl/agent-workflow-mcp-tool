@@ -13,32 +13,10 @@ async function main() {
 
   registerWorkflowTool(
     server,
-    "plus-number",
-    {
-      title: "plus number",
-      description: `ask user input number, and plus.`,
-    },
-    async function* Workflow() {
-      const variableA = yield* ClaudeCodeTools.AskUserQuestion(
-        `please input a number`,
-        z.number()
-      );
-
-      const variableB = yield* ClaudeCodeTools.AskUserQuestion(
-        `please input a number`,
-        z.number()
-      );
-
-      return variableA + variableB;
-    }
-  );
-
-  registerWorkflowTool(
-    server,
     "sum-number",
     {
       title: "sum number",
-      description: `ask user input number, and sum from 1 to input number.`,
+      description: `sum number workflow control`,
     },
     async function* Workflow() {
       const count = yield* ClaudeCodeTools.AskUserQuestion(
@@ -56,64 +34,48 @@ async function main() {
 
   registerWorkflowTool(
     server,
-    "featureflag",
+    "auto-commit",
     {
-      title: "featureflag",
-      description: `use featureflag to control commit changes.`,
+      title: "Auto Commit",
+      description:
+        "Automatically generates a commit message and commits current changes.",
     },
     async function* Workflow() {
-      const sourceCommit = yield* Prompt(
-        `get commit id from user input, if not exist return null`,
-        z.string().or(z.null())
+      // Step 1: Get the list of changed files
+      const filesChangeList = yield* Prompt(
+        "Get the list of currently changed files",
+        z.array(z.string())
       );
 
-      if (!sourceCommit) throw new Error(`commit id is required`);
+      if (filesChangeList.length === 0) {
+        return "No code changes detected.";
+      }
 
-      const featureKey = yield* Prompt(
-        `create an appropriate key by commit ${sourceCommit}, like isEnableFeatureA`,
+      // Step 2: Generate a structured commit message
+      const commitMessage = yield* Prompt(
+        `Generate a commit message based on the current changes. The format must follow:
+(fix|feat|chore): a concise single-line summary
+
+Detailed description of changes in multiple lines if necessary.`,
         z.string()
       );
 
-      const { isConfirm } = yield* ClaudeCodeTools.AskUserQuestion(
-        `Executing subsequent commands may cause changes to the workspace code. Please stage all code first.`,
+      // Step 3: User confirmation
+      const { is_confirm } = yield* ClaudeCodeTools.AskUserQuestion(
+        `The suggested commit message is: \n\n${commitMessage}\n\nDo you want to proceed with the commit?`,
         z.object({
-          isConfirm: z.boolean(),
+          is_confirm: z.boolean(),
         })
       );
 
-      if (isConfirm) {
-        const changedFiles = yield* ClaudeCodeTools.Bash(
-          `git list all changed ts/tsx/js/jsx file path in commit ${sourceCommit}`,
-          z.array(z.string()).describe(`files list`)
-        );
+      if (!is_confirm) return "Commit cancelled by user.";
 
-        for (const file of changedFiles) {
-          yield* ClaudeCodeTools.Bash({
-            command: `git diff ${sourceCommit}^ ${sourceCommit} -- ${file}`,
-          });
+      // Step 4: Execute the commit
+      yield* Prompt(
+        `Commit the current changes with the following message: ${commitMessage}`
+      );
 
-          yield* Prompt(`use ${featureKey} to control the diff listed in the previous step.
-usage:
-\`\`\`js
-// @ts-ignore
-import { ${featureKey} } from 'feature-switch';
-
-if (${featureKey}) {
-  newCode;
-} else {
-  oldCode;
-}
-const value = ${featureKey} ? newValue : oldValue;
-if (${featureKey} && newLogic) {
-  newCode;
-} else {
-  oldCode;
-}
-const value = ${featureKey} && newLogic ? newValue : oldValue;
-\`\`\`
-`);
-        }
-      }
+      return "Changes committed successfully!";
     }
   );
   const transport = new StdioServerTransport();

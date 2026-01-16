@@ -37,7 +37,7 @@ export function createWorkflow(
       const result = yield* workflow();
       return {
         prompt: `<workflow_status>done</workflow_status>
-You have successfully completed the workflow.${
+The workflow is completed successfully.${
           result !== null && result !== undefined
             ? `
 <workflow_result>
@@ -49,11 +49,11 @@ ${formatToString(result)}
     } catch (e: any) {
       return {
         prompt: `<workflow_status>error</workflow_status>
-An error occurred with the MCP server:
+An error occurred with the server:
 <error>
 ${formatError(e)}
 </error>
-The workflow cannot be completed, you MUST inform the user that current mcp tool execution has failed.`,
+The workflow cannot be completed, MUST inform the user that current tool execution has failed.`,
       };
     }
   };
@@ -86,18 +86,18 @@ ${
 ${JSON.stringify(formatToJsonSchema(schema))}
 </result_schema>
 <constraints>
-1. MUST complete current task exactly as requested to continue workflow task by task. NEVER skip task.
+1. MUST complete current task exactly as requested. NEVER skip task.
 2. BRANCHING:
-  - ONLY if task failed OR cannot get task result: Call current MCP tool with message as "error", NEVER pass "error" to complete the workflow.
-  - If task completed: Call current MCP tool with result as "input".
-3. NEVER end responses while workflow status is "processing", MUST call current mcp tool to continue.
+  - ONLY if task failed OR cannot get task result: reuse current tool with message as "error".
+  - If task completed: reuse current tool with result as "input".
+3. NEVER end responses while workflow status is "processing", MUST reuse current tool to continue.
 </constraints>`
     : `<constraints>
-1. MUST complete current task exactly as requested to continue workflow task by task. NEVER skip task.
+1. MUST complete current task exactly as requested. NEVER skip task.
 2. BRANCHING:
-  - ONLY if task failed: Call current MCP tool with message as "error", NEVER pass "error" to complete the workflow.
-  - If task completed: Call current MCP tool with no props.
-3. NEVER end responses while workflow status is "processing", MUST call current mcp tool to continue.
+  - ONLY if task failed: reuse current tool with message as "error".
+  - If task completed: reuse current tool with no props.
+3. NEVER end responses while workflow status is "processing", MUST reuse current tool to continue.
 </constraints>`
 }`,
     schema: schema!,
@@ -118,18 +118,36 @@ const createToolFunction = <T>(toolName: string) => {
   function ToolFunction(props: ToolProps<T>, schema?: ZodType) {
     return Prompt(
       typeof props === "string"
-        ? `MUST call **${toolName}** tool to achieve \`${props}\``
-        : `MUST call **${toolName}** tool with props \`${JSON.stringify(
+        ? `MUST use **${toolName}** tool to achieve "${props}"`
+        : `MUST use **${toolName}** tool with properties ${JSON.stringify(
             props
-          )}\``,
+          )}`,
       schema!
     );
   }
   return ToolFunction;
 };
 
+function AgentToolFunction<TSchema extends ZodType>(
+  props: ToolProps<AgentInput>,
+  schema: TSchema
+): Generator<WorkflowState, z.infer<TSchema>>;
+function AgentToolFunction(
+  props: ToolProps<AgentInput>
+): Generator<WorkflowState, undefined, undefined>;
+function AgentToolFunction(props: ToolProps<AgentInput>, schema?: ZodType) {
+  return Prompt(
+    typeof props === "string"
+      ? `MUST use **Task** tool with properties ${JSON.stringify({
+          prompt: `${props}`,
+        })}`
+      : `MUST use **Task** tool with properties ${JSON.stringify(props)}`,
+    schema!
+  );
+}
+
 export const ClaudeCodeTools = {
-  Agent: createToolFunction<AgentInput>("Agent"),
+  Agent: AgentToolFunction,
   AskUserQuestion: createToolFunction<AskUserQuestionInput>("AskUserQuestion"),
   Bash: createToolFunction<BashInput>("Bash"),
   ExitPlanMode: createToolFunction<ExitPlanModeInput>("ExitPlanMode"),

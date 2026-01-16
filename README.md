@@ -4,6 +4,7 @@ Code controlled agent workflow. Agent lies, code not.
 * typescript support
 * async await support
 * throw catch support
+* sub agent support
 * works well with claude & deepseek-v3.2 & kimi-k2
 
 ## usage
@@ -44,71 +45,52 @@ registerWorkflowTool(
 );
 ```
 ```
-Ask: use agent-workflow mcp sum-number tool
+Ask: use mcp "agent-workflow" tool "sum-number" directly
 ```
 
-another complex demo to use featureflag control a commit with claude code: 
+another complex demo to auto commit:
 ```js
 registerWorkflowTool(
-  server,
-  "featureflag",
-  {
-    title: "featureflag",
-    description: `use featureflag to control commit changes.`,
-  },
-  async function* Workflow() {
-    const sourceCommit = yield* Prompt(
-      `get commit id from user input, if not exist return null`,
-      z.string().or(z.null())
-    );
-
-    if (!sourceCommit) throw new Error(`commit id is required`);
-
-    const featureKey = yield* Prompt(
-      `create an appropriate key by commit ${sourceCommit}, like isEnableFeatureA`,
-      z.string()
-    );
-
-    const { isConfirm } = yield* ClaudeCodeTools.AskUserQuestion(
-      `Executing subsequent commands may cause changes to the workspace code. Please stage all code first.`,
-      z.object({
-        isConfirm: z.boolean(),
-      })
-    );
-
-    if (isConfirm) {
-      const changedFiles = yield* ClaudeCodeTools.Bash(
-        `git list all changed ts/tsx/js/jsx file path in commit ${sourceCommit}`,
-        z.array(z.string()).describe(`files list`)
+    server,
+    "auto-commit",
+    {
+      title: "Auto Commit",
+      description: "Automatically generates a commit message and commits current changes.",
+    },
+    async function* Workflow() {
+      // Step 1: Get the list of changed files
+      const filesChangeList = yield* Prompt(
+        "Get the list of currently changed files",
+        z.array(z.string())
       );
 
-      for (const file of changedFiles) {
-        yield* ClaudeCodeTools.Bash({
-          command: `git diff ${sourceCommit}^ ${sourceCommit} -- ${file}`,
-        });
-
-        yield* Prompt(`use ${featureKey} to control the diff listed in the previous step.
-usage:
-\`\`\`js
-// @ts-ignore
-import { ${featureKey} } from 'feature-switch';
-
-if (${featureKey}) {
-newCode;
-} else {
-oldCode;
-}
-const value = ${featureKey} ? newValue : oldValue;
-if (${featureKey} && newLogic) {
-newCode;
-} else {
-oldCode;
-}
-const value = ${featureKey} && newLogic ? newValue : oldValue;
-\`\`\`
-`);
+      if (filesChangeList.length === 0) {
+        return "No code changes detected.";
       }
+
+      // Step 2: Generate a structured commit message
+      const commitMessage = yield* Prompt(
+        `Generate a commit message based on the current changes. The format must follow:
+(fix|feat|chore): a concise single-line summary
+
+Detailed description of changes in multiple lines if necessary.`,
+        z.string()
+      );
+
+      // Step 3: User confirmation
+      const { is_confirm } = yield* ClaudeCodeTools.AskUserQuestion(
+        `The suggested commit message is: \n\n${commitMessage}\n\nDo you want to proceed with the commit?`,
+        z.object({
+          is_confirm: z.boolean(),
+        })
+      );
+
+      if (!is_confirm) return "Commit cancelled by user.";
+
+      // Step 4: Execute the commit
+      yield* Prompt(`Commit the current changes with the following message: ${commitMessage}`);
+      
+      return "Changes committed successfully!";
     }
-  }
 );
 ```

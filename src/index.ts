@@ -7,7 +7,7 @@ import {
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import z from "zod";
 import type { ZodType } from "zod";
-import { wrapText, formatError } from "./utils.js";
+import { formatToJsonSchema, wrapText, formatError } from "./utils.js";
 
 export { ClaudeCodeTools, Prompt } from "./create-workflow.js";
 
@@ -38,8 +38,8 @@ export function registerWorkflowTool(
     {
       ...options,
       inputSchema: {
-        input: z.any().optional().describe(`First call with no props.`),
-        error: z.string().optional().describe(`First call with no props.`),
+        input: z.any().optional().describe(`First use with no props.`),
+        error: z.string().optional().describe(`First use with no props.`),
       },
     },
     async (args: any, extra) => {
@@ -124,8 +124,13 @@ export function registerWorkflowTool(
             }
             return {
               content:
-                wrapText(`Invalid "input" format, you should recall the current tool using the following format as "input": 
-${formatError(e)}`),
+                wrapText(`Invalid "input" format, MUST reuse the current tool using the following format as "input":
+<validate_error>
+${formatError(e)}
+</validate_error>
+<required_schema>
+${JSON.stringify(formatToJsonSchema(schema))}
+</required_schema>`),
             };
           }
         };
