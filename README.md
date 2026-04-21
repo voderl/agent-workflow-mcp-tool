@@ -48,6 +48,11 @@ registerWorkflowTool(
 Ask: use mcp "agent-workflow" tool "sum-number" directly
 ```
 
+`registerWorkflowTool` also supports constraint throttling options:
+
+- `constraints_interval`: return full `<constraints>` every N calls. The first processing response still returns full constraints.
+- `constraints_timeout`: return full `<constraints>` again when more than N seconds have passed since the last full constraints response. Default is `60`.
+
 another complex demo to auto commit:
 ```js
 registerWorkflowTool(

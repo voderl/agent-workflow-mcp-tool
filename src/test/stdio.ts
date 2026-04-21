@@ -21,15 +21,58 @@ async function main() {
     async function* Workflow() {
       const count = yield* ClaudeCodeTools.AskUserQuestion(
         `please input a number`,
-        z.number()
+        z.number(),
       );
 
       let sum = 0;
       for (let i = 1; i <= count; i++) {
         sum = yield* Prompt(`calculate ${sum} + ${i}`, z.number());
       }
-      return sum;
-    }
+
+      const str = yield* ClaudeCodeTools.Bash(
+        {
+          command: 'sleep 30 && echo "hello"',
+          run_in_background: true,
+        },
+        z.string(),
+      );
+      return str + sum;
+    },
+  );
+
+  registerWorkflowTool(
+    server,
+    "greet-user",
+    {
+      title: "Greet User",
+      description: "Greet a user by name with a custom greeting.",
+      inputSchema: {
+        name: z.string().describe("The user's name"),
+        greeting: z.string().describe("The greeting phrase (e.g. 'Hello')"),
+      },
+    },
+    async function* Workflow({ name, greeting }) {
+      yield* Prompt(`Say "${greeting}, ${name}!" to the user`);
+      return `Greeted ${name}`;
+    },
+  );
+
+  registerWorkflowTool(
+    server,
+    "test-wait",
+    {
+      title: "test-wait",
+      description: `test-wait workflow control`,
+    },
+    async function* Workflow() {
+      yield* ClaudeCodeTools.Bash(
+        {
+          command: 'sleep 180 && echo "hello"',
+          run_in_background: true,
+        },
+        z.string(),
+      );
+    },
   );
 
   registerWorkflowTool(
@@ -44,7 +87,7 @@ async function main() {
       // Step 1: Get the list of changed files
       const filesChangeList = yield* Prompt(
         "Get the list of currently changed files",
-        z.array(z.string())
+        z.array(z.string()),
       );
 
       if (filesChangeList.length === 0) {
@@ -57,7 +100,7 @@ async function main() {
 (fix|feat|chore): a concise single-line summary
 
 Detailed description of changes in multiple lines if necessary.`,
-        z.string()
+        z.string(),
       );
 
       // Step 3: User confirmation
@@ -65,18 +108,18 @@ Detailed description of changes in multiple lines if necessary.`,
         `The suggested commit message is: \n\n${commitMessage}\n\nDo you want to proceed with the commit?`,
         z.object({
           is_confirm: z.boolean(),
-        })
+        }),
       );
 
       if (!is_confirm) return "Commit cancelled by user.";
 
       // Step 4: Execute the commit
       yield* Prompt(
-        `Commit the current changes with the following message: ${commitMessage}`
+        `Commit the current changes with the following message: ${commitMessage}`,
       );
 
       return "Changes committed successfully!";
-    }
+    },
   );
   const transport = new StdioServerTransport();
 

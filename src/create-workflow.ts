@@ -29,15 +29,14 @@ export type WorkflowGenerator = AsyncGenerator<
   any
 >;
 
-export function createWorkflow(
-  workflow: () => AsyncGenerator<WorkflowState, any, any>
+export function createWorkflow<TInput = void>(
+  workflow: (input: TInput) => AsyncGenerator<WorkflowState, any, any>,
 ) {
-  return async function* Workflow(): WorkflowGenerator {
+  return async function* Workflow(input: TInput): WorkflowGenerator {
     try {
-      const result = yield* workflow();
+      const result = yield* workflow(input);
       return {
-        prompt: `<workflow_status>done</workflow_status>
-The workflow is completed successfully.${
+        prompt: `The workflow is completed successfully.${
           result !== null && result !== undefined
             ? `
 <workflow_result>
@@ -45,15 +44,16 @@ ${formatToString(result)}
 </workflow_result>`
             : ``
         }`,
+        status: "done" as const,
       };
     } catch (e: any) {
       return {
-        prompt: `<workflow_status>error</workflow_status>
-An error occurred with the server:
+        prompt: `An error occurred with the server:
 <error>
 ${formatError(e)}
 </error>
 The workflow cannot be completed, MUST inform the user that current tool execution has failed.`,
+        status: "error" as const,
       };
     }
   };
@@ -62,45 +62,33 @@ The workflow cannot be completed, MUST inform the user that current tool executi
 export type WorkflowState = {
   prompt: string;
   schema?: ZodType;
+  status?: "processing" | "done" | "error";
 };
 
 export function Prompt<TSchema extends ZodType>(
   prompt: string,
-  schema: TSchema
+  schema: TSchema,
 ): Generator<WorkflowState, z.infer<TSchema>>;
 export function Prompt(
-  prompt: string
+  prompt: string,
 ): Generator<WorkflowState, undefined, undefined>;
 export function* Prompt(
   prompt: string,
-  schema?: ZodType
+  schema?: ZodType,
 ): Generator<WorkflowState, any, any> {
   const result = yield {
-    prompt: `<workflow_status>processing</workflow_status>
-<task>
+    prompt: `<task>
 ${prompt}
 </task>
 ${
   schema
-    ? `<result_schema>
+    ? `<task_result_schema>
 ${JSON.stringify(formatToJsonSchema(schema))}
-</result_schema>
-<constraints>
-1. MUST complete current task exactly as requested. NEVER skip task.
-2. BRANCHING:
-  - ONLY if task failed OR cannot get task result: reuse current tool with message as "error".
-  - If task completed: reuse current tool with result as "input".
-3. NEVER end responses while workflow status is "processing", MUST reuse current tool to continue.
-</constraints>`
-    : `<constraints>
-1. MUST complete current task exactly as requested. NEVER skip task.
-2. BRANCHING:
-  - ONLY if task failed: reuse current tool with message as "error".
-  - If task completed: reuse current tool with no props.
-3. NEVER end responses while workflow status is "processing", MUST reuse current tool to continue.
-</constraints>`
+</task_result_schema>`
+    : ``
 }`,
     schema: schema!,
+    status: "processing" as const,
   };
   return result;
 }
@@ -110,19 +98,19 @@ type ToolProps<T> = string | Partial<T>;
 const createToolFunction = <T>(toolName: string) => {
   function ToolFunction<TSchema extends ZodType>(
     props: ToolProps<T>,
-    schema: TSchema
+    schema: TSchema,
   ): Generator<WorkflowState, z.infer<TSchema>>;
   function ToolFunction(
-    props: ToolProps<T>
+    props: ToolProps<T>,
   ): Generator<WorkflowState, undefined, undefined>;
   function ToolFunction(props: ToolProps<T>, schema?: ZodType) {
     return Prompt(
       typeof props === "string"
         ? `MUST use **${toolName}** tool to achieve "${props}"`
         : `MUST use **${toolName}** tool with properties ${JSON.stringify(
-            props
+            props,
           )}`,
-      schema!
+      schema!,
     );
   }
   return ToolFunction;
@@ -130,10 +118,10 @@ const createToolFunction = <T>(toolName: string) => {
 
 function AgentToolFunction<TSchema extends ZodType>(
   props: ToolProps<AgentInput>,
-  schema: TSchema
+  schema: TSchema,
 ): Generator<WorkflowState, z.infer<TSchema>>;
 function AgentToolFunction(
-  props: ToolProps<AgentInput>
+  props: ToolProps<AgentInput>,
 ): Generator<WorkflowState, undefined, undefined>;
 function AgentToolFunction(props: ToolProps<AgentInput>, schema?: ZodType) {
   return Prompt(
@@ -142,7 +130,7 @@ function AgentToolFunction(props: ToolProps<AgentInput>, schema?: ZodType) {
           prompt: `${props}`,
         })}`
       : `MUST use **Task** tool with properties ${JSON.stringify(props)}`,
-    schema!
+    schema!,
   );
 }
 
