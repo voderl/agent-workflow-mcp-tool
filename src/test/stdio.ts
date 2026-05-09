@@ -1,126 +1,56 @@
 #!/usr/bin/env node
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { McpServer, StdioServerTransport, logger } from "../index.js";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+function parseLogFile(argv: string[]): string | undefined {
+  const eqIdx = argv.findIndex((a) => a.startsWith("--log-file="));
+  if (eqIdx !== -1) return argv[eqIdx]!.slice("--log-file=".length);
+  const flagIdx = argv.indexOf("--log-file");
+  if (flagIdx !== -1 && flagIdx + 1 < argv.length) return argv[flagIdx + 1];
+  return undefined;
+}
 
-import { ClaudeCodeTools, registerWorkflowTool, Prompt, z } from "../index.js";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const workflowsDir = join(__dirname, "workflows");
+
+async function registerAllWorkflows(server: McpServer) {
+  const entries = readdirSync(workflowsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const modulePath = join(workflowsDir, entry.name, "index.js");
+    let mod: any;
+    try {
+      mod = await import(pathToFileURL(modulePath).href);
+    } catch (err) {
+      console.error(`[workflows] failed to import "${entry.name}":`, err);
+      continue;
+    }
+    if (typeof mod.default?.register !== "function") {
+      console.error(
+        `[workflows] skipping "${entry.name}": module does not export a default with a register() method`,
+      );
+      continue;
+    }
+    mod.default.register(server);
+  }
+}
 
 async function main() {
+  const logFile = parseLogFile(process.argv.slice(2));
+
+  if (logFile) {
+    logger.enable({ logFile, mode: "overwrite" });
+  }
+
   const server = new McpServer({
     name: "agent-workflow",
     version: "0.0.1",
   });
 
-  registerWorkflowTool(
-    server,
-    "sum-number",
-    {
-      title: "sum number",
-      description: `sum number workflow control`,
-    },
-    async function* Workflow() {
-      const count = yield* ClaudeCodeTools.AskUserQuestion(
-        `please input a number`,
-        z.number(),
-      );
+  await registerAllWorkflows(server);
 
-      let sum = 0;
-      for (let i = 1; i <= count; i++) {
-        sum = yield* Prompt(`calculate ${sum} + ${i}`, z.number());
-      }
-
-      const str = yield* ClaudeCodeTools.Bash(
-        {
-          command: 'sleep 30 && echo "hello"',
-          run_in_background: true,
-        },
-        z.string(),
-      );
-      return str + sum;
-    },
-  );
-
-  registerWorkflowTool(
-    server,
-    "greet-user",
-    {
-      title: "Greet User",
-      description: "Greet a user by name with a custom greeting.",
-      inputSchema: {
-        name: z.string().describe("The user's name"),
-        greeting: z.string().describe("The greeting phrase (e.g. 'Hello')"),
-      },
-    },
-    async function* Workflow({ name, greeting }) {
-      yield* Prompt(`Say "${greeting}, ${name}!" to the user`);
-      return `Greeted ${name}`;
-    },
-  );
-
-  registerWorkflowTool(
-    server,
-    "test-wait",
-    {
-      title: "test-wait",
-      description: `test-wait workflow control`,
-    },
-    async function* Workflow() {
-      yield* ClaudeCodeTools.Bash(
-        {
-          command: 'sleep 180 && echo "hello"',
-          run_in_background: true,
-        },
-        z.string(),
-      );
-    },
-  );
-
-  registerWorkflowTool(
-    server,
-    "auto-commit",
-    {
-      title: "Auto Commit",
-      description:
-        "Automatically generates a commit message and commits current changes.",
-    },
-    async function* Workflow() {
-      // Step 1: Get the list of changed files
-      const filesChangeList = yield* Prompt(
-        "Get the list of currently changed files",
-        z.array(z.string()),
-      );
-
-      if (filesChangeList.length === 0) {
-        return "No code changes detected.";
-      }
-
-      // Step 2: Generate a structured commit message
-      const commitMessage = yield* Prompt(
-        `Generate a commit message based on the current changes. The format must follow:
-(fix|feat|chore): a concise single-line summary
-
-Detailed description of changes in multiple lines if necessary.`,
-        z.string(),
-      );
-
-      // Step 3: User confirmation
-      const { is_confirm } = yield* ClaudeCodeTools.AskUserQuestion(
-        `The suggested commit message is: \n\n${commitMessage}\n\nDo you want to proceed with the commit?`,
-        z.object({
-          is_confirm: z.boolean(),
-        }),
-      );
-
-      if (!is_confirm) return "Commit cancelled by user.";
-
-      // Step 4: Execute the commit
-      yield* Prompt(
-        `Commit the current changes with the following message: ${commitMessage}`,
-      );
-
-      return "Changes committed successfully!";
-    },
-  );
   const transport = new StdioServerTransport();
 
   await server.connect(transport);

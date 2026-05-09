@@ -15,41 +15,43 @@ You are generating a workflow for `agent-workflow-mcp-tool` — a library that l
 
 ## Core Principle
 
-**把成功路径固化为代码** — 确定性的步骤用 JS 锁死，只在需要 LLM 推理时才 `yield*`。好处：稳定、可复现、省 token。
+**Lock the success path into code.** Deterministic steps run as plain JS; only `yield*` when LLM reasoning is required. Result: stable, reproducible, token-efficient.
 
-## 执行模型
+## Execution Model
 
-Workflow 是 `async function*`，运行在 MCP server 的 Node.js 进程中。`yield*` 之外的代码直接在 server 执行（零 token，100% 确定性），`yield*` 的部分交给 LLM。
+A workflow is an `async function*` running inside the MCP server's Node process. Code outside `yield*` runs directly on the server (zero tokens, fully deterministic); `yield*` hands control to the LLM.
 
-选择原则：
-1. **能用 JS 做的，直接写代码** — `execSync()`、`fs`、`fetch`、数据处理等
-2. **需要 Claude 调用特定工具的，用 `ClaudeCodeTools.*`** — 固定调用路径
-3. **需要 Claude 自主推理/编排的，用 `Prompt()`** — skill、MCP tool、语义理解任务
-4. **需要用户输入的，用 `Prompt("ask user xxx")` 或 `ClaudeCodeTools.AskUserQuestion()`**
+Decision rules:
+1. **Pure logic** — write JS (`execSync`, `fs`, `fetch`, data shaping).
+2. **Fixed tool call by Claude** — use `ClaudeCodeTools.*`.
+3. **LLM reasoning / orchestration** — use `Prompt()` (skills, MCP tools, semantic tasks).
+4. **User input** — `Prompt("ask user xxx")` or `ClaudeCodeTools.AskUserQuestion()`.
+5. **External MCP server with known schema** — call directly via `connectMcp()`; do not route through Claude.
+6. **Debug / audit** — write structured logs via `logger`; no tokens, no impact on tool output.
 
 ## API
 
 ### `Prompt(prompt, schema?)`
 
 ```ts
-const result = yield* Prompt("Analyze this code", z.string());  // 带返回值
-yield* Prompt("Stage all changes and commit");                    // 无返回值
+const result = yield* Prompt("Analyze this code", z.string());  // with return value
+yield* Prompt("Stage all changes and commit");                    // no return value
 ```
 
 ### `ClaudeCodeTools.*`
 
-`Prompt` 的封装，锁定要调用的工具。传对象（确切参数）或传字符串（自然语言意图）：
+A `Prompt` wrapper that pins the tool. Pass an object (exact args) or a string (intent):
 
 ```ts
-yield* ClaudeCodeTools.Bash({ command: "git diff --name-only" }, z.string());  // 传对象
-yield* ClaudeCodeTools.Bash("list changed files", z.string());                 // 传字符串
+yield* ClaudeCodeTools.Bash({ command: "git diff --name-only" }, z.string());  // object
+yield* ClaudeCodeTools.Bash("list changed files", z.string());                  // string
 ```
 
-**常用工具：** `AskUserQuestion` / `Bash` / `Agent` / `FileRead` / `FileEdit` / `FileWrite` / `Glob` / `Grep` / `WebFetch` / `WebSearch` / `Mcp`
+**Common tools:** `AskUserQuestion` / `Bash` / `Agent` / `FileRead` / `FileEdit` / `FileWrite` / `Glob` / `Grep` / `WebFetch` / `WebSearch` / `Mcp`
 
 ### `createWorkflowTool({ name, options, workflow })`
 
-Workflow 文件统一 `export default createWorkflowTool(...)`,由调用方决定何时 `.register(server)`:
+Each workflow file does `export default createWorkflowTool(...)`; the caller decides when to `.register(server)`:
 
 ```ts
 export default createWorkflowTool({
@@ -57,9 +59,9 @@ export default createWorkflowTool({
   options: {
     title: "Tool Title",
     description: "What this tool does.",
-    constraints_interval: 0,  // 可选：每 N 次返回完整 constraints
-    constraints_timeout: 60,  // 可选：超时后重新返回完整 constraints
-    inputSchema: {            // 可选：声明 workflow 输入参数
+    constraints_interval: 0,  // optional: re-emit full constraints every N calls
+    constraints_timeout: 60,  // optional: re-emit full constraints after timeout
+    inputSchema: {            // optional: declare workflow input args
       repo: z.string().describe("repo name"),
     },
   },
@@ -67,16 +69,16 @@ export default createWorkflowTool({
 });
 ```
 
-调用方使用：
+Caller side:
 
 ```ts
 import tool from "./my-tool.js";
 tool.register(server);
 ```
 
-### 带输入参数的 workflow
+### Workflows with input args
 
-声明 `options.inputSchema` 后,workflow 第一个参数就是类型安全的 input 对象。Agent 首次调用时必须把参数作为 `task_result` 传入（schema 会自动拼到 tool description 里）,无需额外字段:
+Declare `options.inputSchema` and the workflow's first arg becomes a typed input object. The agent's first call must supply the args via `task_result` (the schema is auto-appended to the tool description) — no extra fields needed:
 
 ```ts
 export default createWorkflowTool({
@@ -96,66 +98,113 @@ export default createWorkflowTool({
 
 ## Key Patterns
 
-### 避免过度拆分
+### Avoid over-splitting
 
-每次 `yield*` 是一次 tool_use 交互，合并能合并的步骤：
+Each `yield*` is a tool_use round-trip. Merge whatever can be merged:
 
 ```ts
-// Bad — 3 次交互
+// Bad — 2 round-trips
 yield* ClaudeCodeTools.Bash({ command: "git add -A" });
 yield* ClaudeCodeTools.Bash({ command: `git commit -m "fix"` });
 
-// Good — 一次 Prompt 或直接 JS
+// Good — single Prompt
 yield* Prompt("stage all changes and commit with message: fix");
-execSync('git add -A && git commit -m "fix"');  // Best
+
+// Best — pure JS
+execSync('git add -A && git commit -m "fix"');
 ```
 
-### 文件数据：传路径而非内容
+### File data: pass paths, not contents
 
-文件内容不应经过 LLM 中转。LLM 只返回路径，workflow 用 `fs` 直接读取：
+File contents should not flow through the LLM. Have the LLM return a path; read it with `fs`:
 
 ```ts
-// Bad — 文件内容经 LLM 中转，浪费 token
+// Bad — file content round-trips through the LLM
 const content = yield* ClaudeCodeTools.FileRead({ file_path: "config.json" }, z.string());
 
-// Good — LLM 返回路径，workflow 直接读取
+// Good — LLM returns the path, workflow reads directly
 const filePath = yield* Prompt("Find the main entry file path", z.string());
 const content = fs.readFileSync(filePath, "utf-8");
 
-// Best — 路径已知时直接 JS 处理
+// Best — path is known, skip the LLM
 const config = JSON.parse(fs.readFileSync("config.json", "utf-8"));
 ```
 
-### 用户输入
+### User input
 
 ```ts
-// Prompt — 灵活，Claude 自行组织提问
+// Prompt — flexible, Claude phrases the question
 const input = yield* Prompt("Ask the user for branch name", z.string());
 
-// AskUserQuestion — 直接提问，更可控
+// AskUserQuestion — direct, more controllable
 const branch = yield* ClaudeCodeTools.AskUserQuestion("Enter branch name:", z.string());
 
-// 结构化输入
+// Structured input
 const { name, version } = yield* ClaudeCodeTools.AskUserQuestion(
   "Provide package info:", z.object({ name: z.string(), version: z.string() })
 );
 ```
 
-### 后台执行
+### Background execution
 
 ```ts
 yield* ClaudeCodeTools.Bash({ command: "npm run build", run_in_background: true });
 ```
 
-### 错误处理
+### Calling MCP servers directly (`connectMcp`)
 
-`throw new Error()` 终止 workflow 并报告用户，`return` 正常提前结束：
+**Precondition: only when the target tool's response shape is known.** The code must be able to deterministically parse `result.content`. Otherwise let Claude make the call (via `ClaudeCodeTools.Mcp` or `Prompt`) and have the LLM handle unstructured output.
+
+When the precondition holds, **do not** route through Claude (wastes tokens, non-deterministic). Use `connectMcp` and consume the result inside the workflow process:
+
+```ts
+import { connectMcp } from "agent-workflow-mcp-tool";
+
+const mcp = connectMcp({
+  command: "npx",
+  args: ["-y", "some-mcp-server"],
+});
+
+// Only parse this way when the tool is documented to return JSON shaped { items: [...] }
+const result = await mcp.send({
+  name: "some-tool",
+  arguments: { foo: "bar" },
+});
+const { items } = JSON.parse(result.content[0].text);
+await mcp.close();
+```
+
+Good fit: your own MCP servers, internal APIs with stable schemas — code-consumable output.
+Bad fit: external MCP servers returning natural-language summaries or unstable shapes.
+
+### Logging (`logger`)
+
+`logger` is a module-level singleton, no-op by default. Call `logger.enable({ logFile })` to start writing. Zero tokens, no effect on tool output — debug/audit only:
+
+```ts
+import { logger } from "agent-workflow-mcp-tool";
+
+// Enable once at server startup
+logger.enable({ logFile: "workflow.log" });                   // relative to cwd, append
+logger.enable({ logFile: "/tmp/wf.log", mode: "overwrite" });  // absolute path, overwrite
+
+// Use anywhere inside a workflow
+logger.info({ step: "start", input });
+logger.warning({ slowTask: taskId });
+logger.error(new Error("boom"));
+```
+
+One NDJSON record per line: `{"ts":"...","level":"info","data":{...}}`. `data` keeps its original shape — no double stringify.
+
+### Error handling
+
+`throw new Error()` aborts the workflow and surfaces the message. `return` ends it normally:
 
 ```ts
 async function* Workflow() {
   const status = execSync("git status --porcelain", { encoding: "utf-8" }).trim();
-  if (!status) throw new Error("No changes detected.");  // 错误终止
-  if (someCondition) return "Nothing to do.";             // 正常结束
+  if (!status) throw new Error("No changes detected.");  // abort
+  if (someCondition) return "Nothing to do.";             // graceful exit
 }
 ```
 
@@ -173,16 +222,16 @@ export default createWorkflowTool({
     description: "What this tool does.",
   },
   workflow: async function* Workflow() {
-    // 1. JS 直接执行（零 token）
+    // 1. Pure JS (zero tokens)
     // const data = execSync("...", { encoding: "utf-8" });
 
-    // 2. 用户输入
+    // 2. User input
     // const input = yield* ClaudeCodeTools.AskUserQuestion("question", z.string());
 
-    // 3. LLM 推理
+    // 3. LLM reasoning
     // const result = yield* Prompt("task", z.string());
 
-    // 4. 工具调用
+    // 4. Tool call
     // yield* ClaudeCodeTools.Bash({ command: "..." });
 
     return "done";
@@ -223,8 +272,8 @@ export default createWorkflowTool({
 
 ## Instructions
 
-1. **Analyze** — break task into atomic steps
-2. **Classify** — JS direct / `Prompt()` / `ClaudeCodeTools.*` / `AskUserQuestion()`
-3. **Generate** — write workflow code following patterns above,always `export default createWorkflowTool(...)`
-4. **Write** — to the user-specified file (one workflow per file); the server entry imports it and calls `.register(server)`
-5. **Validate** — every `yield*` must be justified; could it be pure JS instead?
+1. **Analyze** — break the task into atomic steps.
+2. **Classify** — JS direct / `Prompt()` / `ClaudeCodeTools.*` / `AskUserQuestion()`.
+3. **Generate** — follow the patterns above; always `export default createWorkflowTool(...)`.
+4. **Write** — to the user-specified file (one workflow per file); the server entry imports it and calls `.register(server)`.
+5. **Validate** — every `yield*` must be justified. Could it be pure JS instead?

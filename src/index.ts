@@ -11,6 +11,18 @@ import { formatToJsonSchema, wrapText, formatError } from "./utils.js";
 export { ClaudeCodeTools, Prompt } from "./create-workflow.js";
 export { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 export { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+export {
+  connectMcp,
+  type ConnectMcpOptions,
+  type McpInstance,
+  type McpSendParams,
+} from "./connect-mcp.js";
+export {
+  logger,
+  type Logger,
+  type LogLevel,
+  type LoggerEnableOptions,
+} from "./logger.js";
 
 export { z };
 

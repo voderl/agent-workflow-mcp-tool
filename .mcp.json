@@ -2,7 +2,7 @@
   "mcpServers": {
     "agent-workflow": {
       "command": "node",
-      "args": ["./dist/test/stdio.js"]
+      "args": ["./dist/test/stdio.js", "--log-file", "./test.log"]
     }
   }
 }
